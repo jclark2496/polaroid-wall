@@ -1,0 +1,33 @@
+[Unit]
+Description=Polaroid Wall — event photo upload backend
+After=network.target
+
+[Service]
+Type=simple
+User=polaroid-wall
+Group=polaroid-wall
+WorkingDirectory=/opt/polaroid-wall
+ExecStart=/usr/bin/node server.js
+Environment=NODE_ENV=production
+Environment=UPLOAD_PASSWORD=CHANGE_ME
+Environment=ADMIN_PASSWORD=CHANGE_ME
+Environment=PORT=3300
+Environment=APP_DIR=/opt/polaroid-wall
+Environment=WEB_ROOT=/var/www/polaroid-wall
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+UMask=0022
+
+# Light hardening
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateDevices=true
+RestrictSUIDSGID=true
+ReadWritePaths=/var/www/polaroid-wall/uploads /opt/polaroid-wall/data
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

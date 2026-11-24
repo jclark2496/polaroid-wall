@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex,nofollow">
+<title>Admin · Polaroid Wall</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&family=Dancing+Script:wght@500;700&family=Jost:wght@200;300;400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ivory:#FAFAF5; --cream:#F3F0E8; --leaf:#E8F0E0;
+  --sage:#7A9E7E; --fern:#4A7A50; --forest:#2D5A35;
+  --blush:#F0A898; --rose:#E07060; --coral:#E8713A; --peach:#F5B880; --gold:#C8A060;
+  --sand:#D8CEB8; --wt:#3A2A1A; --mt:#6A5A4A; --lt:#A8988A; --white:#FFFFFF;
+}
+* { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+body { background:var(--ivory); font-family:'Jost',sans-serif; font-weight:300; color:var(--wt); min-height:100vh; }
+button { font-family:inherit; cursor:pointer; }
+
+/* HEADER */
+header { position:sticky; top:0; z-index:50; background:rgba(250,250,245,.97); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
+  border-bottom:1px solid var(--leaf); min-height:56px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px clamp(14px,4vw,40px); flex-wrap:wrap; }
+.hdr-title { font-family:'Cormorant Garamond',serif; font-size:1.3rem; color:var(--forest); letter-spacing:.08em; }
+.hdr-title em { font-style:italic; color:var(--coral); font-size:.8em; margin-left:8px; letter-spacing:.2em; text-transform:uppercase; font-family:'Jost',sans-serif; font-style:normal; font-weight:500; font-size:.62rem; }
+.hdr-actions { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.count { font-size:.66rem; font-weight:500; letter-spacing:.2em; text-transform:uppercase; color:var(--fern); }
+.btn { border:1px solid var(--sage); background:var(--white); color:var(--forest); border-radius:999px; padding:8px 18px; font-size:.7rem; font-weight:500; letter-spacing:.14em; text-transform:uppercase; transition:all .2s; }
+.btn:hover { background:var(--leaf); }
+.btn.primary { background:var(--forest); color:#fff; border-color:var(--forest); }
+.btn.primary:hover { background:var(--fern); }
+.btn.danger { color:var(--rose); border-color:var(--blush); }
+.btn.danger:hover { background:var(--rose); color:#fff; }
+.btn[disabled] { opacity:.5; pointer-events:none; }
+
+/* LOGIN */
+.login { max-width:380px; margin:12vh auto 0; padding:36px 30px; background:var(--white); border-radius:6px; box-shadow:0 10px 40px rgba(58,42,26,.12); text-align:center; }
+.login h1 { font-family:'Cormorant Garamond',serif; font-weight:300; font-size:2.2rem; color:var(--forest); margin-bottom:4px; }
+.login p { font-size:.8rem; color:var(--mt); margin-bottom:22px; letter-spacing:.04em; }
+.login input { width:100%; border:1px solid var(--sand); border-radius:4px; padding:12px 14px; font:inherit; font-size:.95rem; background:var(--ivory); margin-bottom:14px; }
+.login input:focus { outline:2px solid var(--sage); }
+.login .btn { width:100%; padding:12px; }
+.err { color:var(--rose); font-size:.78rem; min-height:1.2em; margin-top:12px; }
+
+/* GRID */
+main { padding:26px clamp(14px,4vw,40px) 60px; }
+.grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:26px; }
+.pc { background:var(--white); padding:10px 10px 12px; border-radius:2px; box-shadow:0 4px 16px rgba(58,42,26,.14); position:relative; transition:transform .2s; }
+.pc:nth-child(3n+1) { transform:rotate(-1.2deg); } .pc:nth-child(3n+2) { transform:rotate(.9deg); } .pc:nth-child(3n) { transform:rotate(-.4deg); }
+.pc:hover { transform:rotate(0) translateY(-3px); }
+.pc img { width:100%; aspect-ratio:1/1; object-fit:cover; display:block; background:var(--cream); cursor:zoom-in; }
+.pc .nm { font-family:'Dancing Script',cursive; font-size:1.15rem; color:var(--wt); margin-top:8px; line-height:1.2; word-break:break-word; }
+.pc .nt { font-size:.78rem; color:var(--mt); margin-top:2px; min-height:1.1em; word-break:break-word; }
+.pc .meta { font-size:.6rem; letter-spacing:.14em; text-transform:uppercase; color:var(--lt); margin-top:6px; }
+.pc .row { display:flex; gap:6px; margin-top:10px; }
+.pc .row .btn { flex:1; padding:6px 0; font-size:.62rem; letter-spacing:.1em; }
+.empty { text-align:center; color:var(--mt); padding:80px 0; font-family:'Cormorant Garamond',serif; font-style:italic; font-size:1.3rem; }
+
+/* DIALOGS */
+.overlay { position:fixed; inset:0; background:rgba(30,24,16,.6); display:none; align-items:center; justify-content:center; z-index:100; padding:20px; }
+.overlay.open { display:flex; }
+.dlg { background:var(--white); border-radius:6px; padding:26px; width:100%; max-width:420px; box-shadow:0 20px 60px rgba(0,0,0,.3); }
+.dlg h2 { font-family:'Cormorant Garamond',serif; font-weight:400; color:var(--forest); font-size:1.6rem; margin-bottom:14px; }
+.dlg label { display:block; font-size:.62rem; font-weight:500; letter-spacing:.2em; text-transform:uppercase; color:var(--mt); margin:12px 0 5px; }
+.dlg input, .dlg textarea { width:100%; border:1px solid var(--sand); border-radius:4px; padding:10px 12px; font:inherit; font-size:.92rem; background:var(--ivory); }
+.dlg textarea { min-height:78px; resize:vertical; }
+.dlg .acts { display:flex; justify-content:flex-end; gap:10px; margin-top:20px; }
+.dlg p { font-size:.88rem; color:var(--mt); line-height:1.5; }
+.lb img { max-width:94vw; max-height:90vh; border-radius:3px; box-shadow:0 20px 60px rgba(0,0,0,.5); }
+.toast { position:fixed; left:50%; bottom:28px; transform:translateX(-50%) translateY(20px); background:var(--forest); color:#fff; padding:10px 22px; border-radius:999px; font-size:.78rem; letter-spacing:.06em; opacity:0; pointer-events:none; transition:all .3s; z-index:200; }
+.toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+.toast.bad { background:var(--rose); }
+[hidden] { display:none !important; }
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<section class="login" id="loginView">
+  <h1>Photo Wall Admin</h1>
+  <p>Enter the admin password to manage photos.</p>
+  <form id="loginForm">
+    <input type="password" id="pw" placeholder="Admin password" autocomplete="current-password" autofocus>
+    <button class="btn primary" type="submit">Sign in</button>
+    <div class="err" id="loginErr"></div>
+  </form>
+</section>
+
+<!-- DASHBOARD -->
+<div id="appView" hidden>
+  <header>
+    <div class="hdr-title">Polaroid Wall <em>Admin</em></div>
+    <div class="hdr-actions">
+      <span class="count" id="count"></span>
+      <button class="btn" id="refreshBtn" type="button">Refresh</button>
+      <button class="btn primary" id="zipBtn" type="button">Download all (ZIP)</button>
+      <button class="btn" id="logoutBtn" type="button">Sign out</button>
+    </div>
+  </header>
+  <main>
+    <div class="grid" id="grid"></div>
+    <div class="empty" id="empty" hidden>No photos yet.</div>
+  </main>
+</div>
+
+<!-- EDIT DIALOG -->
+<div class="overlay" id="editOv">
+  <form class="dlg" id="editForm">
+    <h2>Edit photo</h2>
+    <label for="eName">Guest name</label>
+    <input id="eName" maxlength="80">
+    <label for="eNote">Note</label>
+    <textarea id="eNote" maxlength="200"></textarea>
+    <div class="acts">
+      <button class="btn" type="button" id="eCancel">Cancel</button>
+      <button class="btn primary" type="submit">Save</button>
+    </div>
+  </form>
+</div>
+
+<!-- DELETE DIALOG -->
+<div class="overlay" id="delOv">
+  <div class="dlg">
+    <h2>Delete this photo?</h2>
+    <p id="delMsg">This permanently removes the photo and its thumbnail. This cannot be undone.</p>
+    <div class="acts">
+      <button class="btn" type="button" id="dCancel">Cancel</button>
+      <button class="btn danger" type="button" id="dOk">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- LIGHTBOX -->
+<div class="overlay lb" id="lbOv"><img id="lbImg" alt=""></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const KEY = 'pw_admin_pw';           // kept in sessionStorage only (cleared when the tab closes)
+const $ = id => document.getElementById(id);
+let adminPw = sessionStorage.getItem(KEY) || '';
+let photos = [];
+let editId = null, delId = null;
+
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function toast(msg, bad){ const t=$('toast'); t.textContent=msg; t.className='toast show'+(bad?' bad':''); clearTimeout(toast.t); toast.t=setTimeout(()=>t.className='toast',2600); }
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, { ...opts, headers: { 'X-Admin-Password': adminPw, ...(opts.headers || {}) } });
+  if (r.status === 403) { signOut('Session expired — please sign in again.'); throw new Error('Forbidden'); }
+  return r;
+}
+
+/* ---- auth ---- */
+async function signIn(pw) {
+  const r = await fetch('/api/admin/check', { headers: { 'X-Admin-Password': pw } });
+  if (r.status === 429) throw new Error('Too many attempts. Please wait a few minutes.');
+  if (!r.ok) throw new Error('Incorrect password.');
+  adminPw = pw; sessionStorage.setItem(KEY, pw);
+  $('loginView').hidden = true; $('appView').hidden = false;
+  await load();
+}
+function signOut(msg) {
+  adminPw = ''; sessionStorage.removeItem(KEY);
+  $('appView').hidden = true; $('loginView').hidden = false;
+  $('pw').value = ''; $('loginErr').textContent = msg || '';
+}
+$('loginForm').addEventListener('submit', async e => {
+  e.preventDefault(); $('loginErr').textContent = '';
+  try { await signIn($('pw').value); } catch (err) { $('loginErr').textContent = err.message; }
+});
+$('logoutBtn').onclick = () => signOut();
+
+/* ---- list ---- */
+async function load() {
+  const r = await fetch('/api/photos', { cache: 'no-store' });
+  const data = await r.json();
+  photos = data.photos || [];
+  render();
+}
+function render() {
+  $('count').textContent = photos.length + (photos.length === 1 ? ' photo' : ' photos');
+  $('empty').hidden = photos.length > 0;
+  $('grid').innerHTML = photos.map(p => `
+    <div class="pc" data-id="${p.id}">
+      <img src="/uploads/${esc(p.thumb_filename)}" data-full="/uploads/${esc(p.filename)}" alt="Photo by ${esc(p.guest_name)}" loading="lazy">
+      <div class="nm">${esc(p.guest_name)}</div>
+      <div class="nt">${esc(p.note)}</div>
+      <div class="meta">#${p.id} · ${esc(new Date(p.uploaded_at).toLocaleString())}</div>
+      <div class="row">
+        <button class="btn" data-act="edit">Edit</button>
+        <button class="btn danger" data-act="del">Delete</button>
+      </div>
+    </div>`).join('');
+}
+$('grid').addEventListener('click', e => {
+  const card = e.target.closest('.pc'); if (!card) return;
+  const id = Number(card.dataset.id), p = photos.find(x => x.id === id);
+  if (e.target.matches('img')) { $('lbImg').src = e.target.dataset.full; $('lbOv').classList.add('open'); }
+  else if (e.target.dataset.act === 'edit') openEdit(p);
+  else if (e.target.dataset.act === 'del') openDel(p);
+});
+$('lbOv').onclick = () => $('lbOv').classList.remove('open');
+$('refreshBtn').onclick = () => load().then(() => toast('Refreshed'));
+
+/* ---- edit (PATCH /api/admin/photos/:id) ---- */
+function openEdit(p) { editId = p.id; $('eName').value = p.guest_name; $('eNote').value = p.note; $('editOv').classList.add('open'); $('eName').focus(); }
+$('eCancel').onclick = () => $('editOv').classList.remove('open');
+$('editForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  try {
+    const r = await api('/api/admin/photos/' + editId, { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ guest_name: $('eName').value, note: $('eNote').value }) });
+    if (!r.ok) throw new Error((await r.json()).error || 'Save failed');
+    const j = await r.json(), p = photos.find(x => x.id === editId);
+    p.guest_name = j.guest_name; p.note = j.note;
+    $('editOv').classList.remove('open'); render(); toast('Saved');
+  } catch (err) { if (err.message !== 'Forbidden') toast(err.message, true); }
+});
+
+/* ---- delete (DELETE /api/photos/:id) ---- */
+function openDel(p) { delId = p.id; $('delMsg').textContent = `Permanently delete the photo by “${p.guest_name}”? This cannot be undone.`; $('delOv').classList.add('open'); }
+$('dCancel').onclick = () => $('delOv').classList.remove('open');
+$('dOk').onclick = async () => {
+  try {
+    const r = await api('/api/photos/' + delId, { method: 'DELETE' });
+    if (!r.ok) throw new Error((await r.json()).error || 'Delete failed');
+    photos = photos.filter(x => x.id !== delId);
+    $('delOv').classList.remove('open'); render(); toast('Deleted');
+  } catch (err) { if (err.message !== 'Forbidden') toast(err.message, true); }
+};
+
+/* ---- download all (GET /api/admin/download-all) ---- */
+$('zipBtn').onclick = async () => {
+  const b = $('zipBtn'); b.disabled = true; b.textContent = 'Preparing…';
+  try {
+    const r = await api('/api/admin/download-all');
+    if (!r.ok) throw new Error((await r.json()).error || 'Download failed');
+    const url = URL.createObjectURL(await r.blob());
+    const a = Object.assign(document.createElement('a'), { href: url, download: 'event-photos.zip' });
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    toast('Download started');
+  } catch (err) { if (err.message !== 'Forbidden') toast(err.message, true); }
+  b.disabled = false; b.textContent = 'Download all (ZIP)';
+};
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') document.querySelectorAll('.overlay.open').forEach(o => o.classList.remove('open')); });
+
+/* ---- resume session ---- */
+if (adminPw) signIn(adminPw).catch(() => signOut());
+</script>
+</body>
+</html>

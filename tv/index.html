@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Event Live Wall — Polaroid Wall</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&family=Dancing+Script:wght@500;700&family=Jost:wght@200;300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ivory: #FAFAF5;
+    --sage: #7A9E7E;
+    --fern: #4A7A50;
+    --forest: #2D5A35;
+    --peach: #F5B880;
+    --rose: #E07060;
+    --gold: #C8A060;
+    --wt: #3A2A1A;
+  }
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%; width: 100%;
+    overflow: hidden;
+    background: #07100B;
+    font-family: 'Jost', sans-serif;
+    color: rgba(255, 255, 255, 0.85);
+    cursor: none;
+  }
+
+  /* Layered atmospheric background */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background:
+      radial-gradient(ellipse 70% 55% at 50% 38%, rgba(122,158,126,0.16) 0%, transparent 60%),
+      radial-gradient(ellipse 55% 75% at 18% 80%, rgba(245,184,128,0.10) 0%, transparent 55%),
+      radial-gradient(ellipse 60% 50% at 82% 88%, rgba(224,112,96,0.07) 0%, transparent 55%),
+      linear-gradient(160deg, #0A1A12 0%, #122218 50%, #07100B 100%);
+    z-index: 0;
+  }
+  /* Film grain overlay */
+  body::after {
+    content: '';
+    position: fixed; inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.06'/%3E%3C/svg%3E");
+    background-size: 240px;
+    pointer-events: none;
+    z-index: 1;
+    opacity: 0.35;
+  }
+
+  /* TOP BAR */
+  .topbar {
+    position: fixed; top: 0; left: 0; right: 0;
+    z-index: 30;
+    padding: 28px 48px;
+    display: flex; justify-content: space-between; align-items: center;
+    pointer-events: none;
+    animation: fadeIn 1.2s 0.3s both;
+  }
+  .brand {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 1.5rem;
+    color: rgba(255,255,255,0.85);
+    letter-spacing: 0.32em;
+  }
+  .brand .amp {
+    color: var(--peach);
+    font-style: italic;
+    font-size: 0.85em;
+    padding: 0 6px;
+  }
+  .clock {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-size: 1.1rem;
+    color: rgba(255,255,255,0.55);
+    letter-spacing: 0.04em;
+  }
+  .live-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--peach);
+    margin-right: 10px;
+    box-shadow: 0 0 12px rgba(245,184,128,0.8);
+    animation: pulse 2.2s ease-in-out infinite;
+    vertical-align: middle;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.85); }
+  }
+
+  /* STAGE */
+  .stage {
+    position: fixed; inset: 0;
+    z-index: 10;
+    display: flex; align-items: center; justify-content: center;
+    padding: 90px 4vw 120px;
+  }
+
+  /* CAROUSEL — constrained by BOTH viewport width AND available height
+     so the Polaroid never overflows the top/bottom bars. */
+  .carousel {
+    position: relative;
+    /* width = smallest of: 56vw, hard max 820px, or width derived from available height */
+    width: min(56vw, 820px, calc((100vh - 200px) * 0.8));
+    aspect-ratio: 4/5;
+    display: flex; align-items: center; justify-content: center;
+  }
+  /* Soft halo glow behind cards */
+  .carousel::before {
+    content: '';
+    position: absolute;
+    inset: -8%;
+    background: radial-gradient(ellipse, rgba(245,184,128,0.18) 0%, rgba(122,158,126,0.08) 40%, transparent 72%);
+    z-index: -1;
+    pointer-events: none;
+    filter: blur(20px);
+  }
+
+  .polaroid {
+    position: absolute; inset: 0;
+    background: #fff;
+    padding: 24px 24px 110px;
+    box-shadow:
+      0 36px 90px rgba(0,0,0,0.55),
+      0 14px 40px rgba(245,184,128,0.20),
+      0 0 0 1px rgba(255,255,255,0.05);
+    opacity: 0;
+    transform: scale(0.94) rotate(var(--rot, 0deg));
+    transition: opacity 1.4s ease, transform 1.4s cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: opacity, transform;
+    pointer-events: none;
+  }
+  .polaroid.active {
+    opacity: 1;
+    transform: scale(1) rotate(var(--rot, 0deg));
+  }
+
+  /* Tape strips for that authentic Polaroid feel */
+  .polaroid .tape {
+    position: absolute;
+    width: 86px; height: 22px;
+    background: rgba(200, 220, 195, 0.42);
+    backdrop-filter: blur(2px);
+    top: -10px;
+    z-index: 2;
+  }
+  .polaroid .tape.tl { left: 26px; transform: rotate(-3deg); }
+  .polaroid .tape.tr { right: 26px; transform: rotate(2.5deg); }
+
+  .polaroid .photo-frame {
+    width: 100%;
+    aspect-ratio: 1/1;
+    overflow: hidden;
+    background: #1a2a20;
+    position: relative;
+  }
+  .polaroid img {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    display: block;
+    transform-origin: center;
+  }
+  .polaroid.active img {
+    animation: kenBurns 10s ease-out forwards;
+  }
+  @keyframes kenBurns {
+    from { transform: scale(1) translate(0, 0); }
+    to   { transform: scale(1.10) translate(-2%, 1.5%); }
+  }
+
+  .pinfo {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    height: 110px;
+    padding: 12px 22px 18px;
+    display: flex; flex-direction: column;
+    justify-content: center; align-items: center;
+    text-align: center;
+  }
+  .pnote {
+    font-family: 'Dancing Script', cursive;
+    font-weight: 500;
+    font-size: 1.85rem;
+    color: var(--wt);
+    line-height: 1.15;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    word-break: break-word;
+    max-width: 100%;
+  }
+  .pname {
+    font-family: 'Dancing Script', cursive;
+    font-weight: 500;
+    font-size: 1.35rem;
+    color: var(--rose);
+    margin-top: 6px;
+  }
+
+  /* BOTTOM BAR */
+  .bottombar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    z-index: 30;
+    padding: 32px 48px;
+    display: flex; justify-content: space-between; align-items: flex-end;
+    pointer-events: none;
+    animation: fadeIn 1.2s 0.5s both;
+  }
+  .counter {
+    display: flex; align-items: baseline; gap: 14px;
+  }
+  .counter .num {
+    font-family: 'Cormorant Garamond', serif;
+    font-weight: 300;
+    font-size: 2.6rem;
+    color: var(--peach);
+    line-height: 1;
+    transition: color 0.3s, transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .counter .num.bump {
+    transform: scale(1.15);
+    color: #fff;
+  }
+  .counter .label {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-size: 1.1rem;
+    color: rgba(255,255,255,0.55);
+  }
+  .upload-prompt {
+    text-align: right;
+  }
+  .upload-prompt .eye {
+    font-size: 0.65rem;
+    letter-spacing: 0.36em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.4);
+    margin-bottom: 8px;
+  }
+  .upload-prompt .url {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 1.55rem;
+    color: var(--peach);
+    letter-spacing: 0.05em;
+    line-height: 1.1;
+  }
+  .upload-prompt .pw {
+    font-family: 'Dancing Script', cursive;
+    font-style: italic;
+    color: rgba(255,255,255,0.55);
+    font-size: 1.05rem;
+    margin-top: 4px;
+  }
+  .upload-prompt .pw em { color: rgba(245,184,128,0.85); font-style: italic; }
+
+  /* EMPTY STATE — what shows before the first photo arrives */
+  .empty {
+    text-align: center;
+    z-index: 10;
+    animation: fadeIn 1.5s 0.4s both;
+  }
+  .empty .mark {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    color: rgba(245,184,128,0.7);
+    letter-spacing: 0.35em;
+    font-size: 0.85rem;
+    margin-bottom: 26px;
+  }
+  .empty h1 {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-weight: 300;
+    font-size: clamp(3rem, 7vw, 5.5rem);
+    color: rgba(255,255,255,0.92);
+    line-height: 1;
+    margin-bottom: 24px;
+    text-shadow: 0 2px 30px rgba(0,0,0,0.4);
+  }
+  .empty h1 .heart { color: var(--peach); font-style: italic; font-size: 0.75em; padding: 0 10px; }
+  .empty p {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-size: 1.4rem;
+    color: rgba(255,255,255,0.55);
+    margin-bottom: 38px;
+  }
+  .empty .pulse {
+    display: inline-block;
+    font-family: 'Dancing Script', cursive;
+    color: var(--peach);
+    font-size: 1.6rem;
+    animation: breathe 3.5s ease-in-out infinite;
+    text-shadow: 0 0 20px rgba(245,184,128,0.4);
+  }
+  @keyframes breathe {
+    0%, 100% { opacity: 0.55; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.04); }
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* CONNECTION LOST INDICATOR */
+  .conn-error {
+    position: fixed; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(224,112,96,0.95);
+    color: #fff;
+    padding: 14px 28px;
+    border-radius: 6px;
+    font-family: 'Jost', sans-serif;
+    font-size: 0.9rem;
+    letter-spacing: 0.1em;
+    z-index: 100;
+    display: none;
+  }
+  .conn-error.show { display: block; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand" id="tvBrand">ALEX <span class="amp">&amp;</span> JORDAN</div>
+  <div class="clock"><span class="live-dot"></span><span id="clock"></span></div>
+</div>
+
+<div class="stage">
+  <div class="carousel" id="carousel"></div>
+  <div class="empty" id="empty">
+    <p class="mark">— the celebration —</p>
+    <h1>Alex<span class="heart">&amp;</span>Jordan</h1>
+    <p>The first memory will arrive any moment now…</p>
+    <div class="pulse">📷 share yours at photos.example.com</div>
+  </div>
+</div>
+
+<div class="bottombar">
+  <div class="counter">
+    <span class="num" id="count">0</span>
+    <span class="label" id="count-label">memories so far</span>
+  </div>
+  <div class="upload-prompt">
+    <div class="eye">add yours</div>
+    <div class="url">photos.example.com</div>
+    <div class="pw">password: <em>demo-password</em></div>
+  </div>
+</div>
+
+<div class="conn-error" id="connError">connection lost · retrying…</div>
+
+<script>
+const ADVANCE_MS = 9000;
+const POLL_MS = 30000;
+const EMPTY_RECHECK_MS = 8000;
+
+let photos = [];
+let currentIndex = 0;
+let activeCard = null;
+let advanceTimer = null;
+let consecutiveFailures = 0;
+
+const carousel = document.getElementById('carousel');
+const emptyEl = document.getElementById('empty');
+const countEl = document.getElementById('count');
+const countLabel = document.getElementById('count-label');
+const connError = document.getElementById('connError');
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function bumpCount(n) {
+  const prev = parseInt(countEl.textContent, 10) || 0;
+  countEl.textContent = n;
+  countLabel.textContent = n === 1 ? 'memory so far' : 'memories so far';
+  if (n > prev) {
+    countEl.classList.add('bump');
+    setTimeout(() => countEl.classList.remove('bump'), 500);
+  }
+}
+
+async function fetchPhotos() {
+  try {
+    const r = await fetch('/api/photos', { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    consecutiveFailures = 0;
+    connError.classList.remove('show');
+
+    const incoming = data.photos || [];
+    const hadNoPhotos = photos.length === 0;
+    const oldFirstId = photos[0] && photos[0].id;
+    photos = incoming;
+    bumpCount(photos.length);
+
+    if (photos.length === 0) {
+      emptyEl.style.display = 'block';
+      if (activeCard) { activeCard.remove(); activeCard = null; }
+      return;
+    }
+
+    emptyEl.style.display = 'none';
+    const newPhotoArrived = photos[0] && photos[0].id !== oldFirstId;
+
+    if (hadNoPhotos) {
+      currentIndex = 0;
+      showPhoto(0);
+      restartAdvance();
+    } else if (newPhotoArrived) {
+      // Show the brand-new photo on the next advance cycle
+      currentIndex = -1;
+    }
+  } catch (err) {
+    console.warn('fetchPhotos failed:', err);
+    consecutiveFailures++;
+    if (consecutiveFailures >= 2) connError.classList.add('show');
+  }
+}
+
+function showPhoto(index) {
+  if (photos.length === 0) return;
+  const p = photos[index % photos.length];
+  if (!p) return;
+
+  const card = document.createElement('div');
+  card.className = 'polaroid';
+  // Random tilt: ±2°, biased toward small angles
+  const rot = (Math.random() * 4 - 2).toFixed(2);
+  card.style.setProperty('--rot', rot + 'deg');
+  card.innerHTML = `
+    <div class="tape tl"></div>
+    <div class="tape tr"></div>
+    <div class="photo-frame">
+      <img src="/uploads/${escapeHtml(p.filename)}" alt="" referrerpolicy="no-referrer">
+    </div>
+    <div class="pinfo">
+      <div class="pnote">${escapeHtml(p.note || '♡')}</div>
+      <div class="pname">— ${escapeHtml(p.guest_name)}</div>
+    </div>
+  `;
+  carousel.appendChild(card);
+
+  // Trigger entrance after layout
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => card.classList.add('active'));
+  });
+
+  // Fade out the previous card; remove after transition
+  if (activeCard) {
+    const old = activeCard;
+    old.classList.remove('active');
+    setTimeout(() => old.remove(), 1500);
+  }
+  activeCard = card;
+
+  // Preload the next 2 images
+  for (let i = 1; i <= 2; i++) {
+    const next = photos[(index + i) % photos.length];
+    if (next) new Image().src = '/uploads/' + next.filename;
+  }
+}
+
+function advance() {
+  if (photos.length === 0) return;
+  currentIndex = (currentIndex + 1 + photos.length) % photos.length;
+  showPhoto(currentIndex);
+}
+
+function restartAdvance() {
+  if (advanceTimer) clearInterval(advanceTimer);
+  advanceTimer = setInterval(advance, ADVANCE_MS);
+}
+
+function tickClock() {
+  const now = new Date();
+  document.getElementById('clock').textContent = now.toLocaleString('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric',
+    hour: 'numeric', minute: '2-digit'
+  });
+}
+
+async function keepAwake() {
+  if ('wakeLock' in navigator) {
+    try { await navigator.wakeLock.request('screen'); }
+    catch (e) { console.warn('wake lock denied:', e); }
+  }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') keepAwake();
+});
+
+// Hide cursor after inactivity (TV mode)
+let cursorTimer;
+function showCursor() {
+  document.body.style.cursor = 'default';
+  clearTimeout(cursorTimer);
+  cursorTimer = setTimeout(() => { document.body.style.cursor = 'none'; }, 3000);
+}
+document.addEventListener('mousemove', showCursor);
+
+// Init
+keepAwake();
+tickClock();
+setInterval(tickClock, 30000);
+fetchPhotos();
+setInterval(fetchPhotos, POLL_MS);
+</script>
+</body>
+</html>

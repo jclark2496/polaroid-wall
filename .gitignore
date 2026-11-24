@@ -1,0 +1,21 @@
+node_modules/
+
+# Runtime data — never commit uploaded photos or the database
+server/data/
+uploads/
+*.db
+*.db-wal
+*.db-shm
+
+# Secrets
+.env
+*.env.local
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Backups
+*-backups/
+*.tar.gz
