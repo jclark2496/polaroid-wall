@@ -30,6 +30,14 @@ const UPLOAD_WINDOW_MS = 15 * 60 * 1000;
 const UPLOAD_LIMIT_PER_WINDOW = 200;  // per IP — generous for shared venue WiFi
 const AUTH_WINDOW_MS = 15 * 60 * 1000;
 const AUTH_FAILURE_LIMIT = 8;
+const SESSION_COOKIE = 'pw_view';
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;  // a month: long enough for the event and the week after
+// Viewing the wall needs the event password unless PRIVATE_WALL=0.
+const PRIVATE_WALL = process.env.PRIVATE_WALL !== '0';
+const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
+if (!process.env.SESSION_SECRET && PRIVATE_WALL) {
+  console.warn('[polaroid-wall] SESSION_SECRET is not set: viewers will need to sign in again after a restart.');
+}
 
 for (const dir of [UPLOAD_DIR, THUMB_DIR, DATA_DIR]) {
   fs.mkdirSync(dir, { recursive: true });
@@ -79,12 +87,61 @@ const selectAllPhotos = db.prepare(
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || UPLOAD_PASSWORD;
 
 function verifyAdmin(req, res) {
+  const now = Date.now();
+  const ip = getClientIp(req);
+  if (currentAttemptCount(authFailuresByIp, ip, now, AUTH_WINDOW_MS) >= AUTH_FAILURE_LIMIT) {
+    res.status(429).json({ error: 'Too many incorrect password attempts. Please wait and try again.' });
+    return false;
+  }
   const pw = req.headers['x-admin-password'] || '';
   if (!constantTimeEquals(pw, ADMIN_PASSWORD)) {
+    recordAttempt(authFailuresByIp, ip, now, AUTH_WINDOW_MS);
     res.status(403).json({ error: 'Forbidden.' });
     return false;
   }
   return true;
+}
+
+/* ---- viewing sessions: an HMAC-signed expiry in an HttpOnly cookie ---- */
+function signSession(expiresAt) {
+  const payload = String(expiresAt);
+  const mac = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('base64url');
+  return `${payload}.${mac}`;
+}
+
+function readCookie(req, name) {
+  const header = req.headers.cookie || '';
+  for (const part of header.split(';')) {
+    const idx = part.indexOf('=');
+    if (idx > -1 && part.slice(0, idx).trim() === name) return part.slice(idx + 1).trim();
+  }
+  return '';
+}
+
+function hasViewSession(req) {
+  const token = readCookie(req, SESSION_COOKIE);
+  const dot = token.indexOf('.');
+  if (dot < 1) return false;
+  const expiresAt = Number(token.slice(0, dot));
+  if (!Number.isFinite(expiresAt) || expiresAt < Date.now()) return false;
+  return constantTimeEquals(token, signSession(expiresAt));
+}
+
+function grantViewSession(req, res) {
+  const expiresAt = Date.now() + SESSION_TTL_MS;
+  const secure = req.secure ? '; Secure' : '';
+  res.setHeader('Set-Cookie',
+    `${SESSION_COOKIE}=${signSession(expiresAt)}; Path=/; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}; HttpOnly; SameSite=Lax${secure}`);
+}
+
+function hasAdminHeader(req) {
+  const pw = req.headers['x-admin-password'];
+  return typeof pw === 'string' && pw.length > 0 && constantTimeEquals(pw, ADMIN_PASSWORD);
+}
+
+function requireViewer(req, res, next) {
+  if (!PRIVATE_WALL || hasViewSession(req) || hasAdminHeader(req)) return next();
+  res.status(401).json({ error: 'Enter the event password to see the wall.', login: true });
 }
 
 const upload = multer({
@@ -101,6 +158,30 @@ app.disable('x-powered-by');
 app.set('trust proxy', 'loopback');
 app.use(express.json({ limit: '64kb' }));
 app.use(express.urlencoded({ extended: false, limit: '64kb' }));
+
+// Security headers for everything this process serves. The Caddy example in the README sets the same.
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src https://fonts.gstatic.com",
+  "img-src 'self' data: blob:",
+  "connect-src 'self'",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join('; ');
+app.use((_req, res, next) => {
+  res.setHeader('Content-Security-Policy', CSP);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'same-origin');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=(), payment=()');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+  next();
+});
 
 const uploadAttemptsByIp = new Map();
 const authFailuresByIp = new Map();
@@ -315,7 +396,34 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', photos: n, time: new Date().toISOString() });
 });
 
-app.get('/api/photos', (_req, res) => {
+app.get('/api/session', (req, res) => {
+  res.json({ private: PRIVATE_WALL, signedIn: !PRIVATE_WALL || hasViewSession(req) });
+});
+
+app.post('/api/session', (req, res) => {
+  const now = Date.now();
+  const ip = getClientIp(req);
+  if (currentAttemptCount(authFailuresByIp, ip, now, AUTH_WINDOW_MS) >= AUTH_FAILURE_LIMIT) {
+    return res.status(429).json({ error: 'Too many incorrect password attempts. Please wait and try again.' });
+  }
+  const password = (req.body && req.body.password) || '';
+  if (!constantTimeEquals(password, UPLOAD_PASSWORD) && !constantTimeEquals(password, ADMIN_PASSWORD)) {
+    recordAttempt(authFailuresByIp, ip, now, AUTH_WINDOW_MS);
+    return res.status(401).json({ error: 'Incorrect event password.' });
+  }
+  grantViewSession(req, res);
+  res.json({ ok: true });
+});
+
+// Photos are served by this process so the same session protects them.
+app.use('/uploads', requireViewer, express.static(UPLOAD_DIR, {
+  index: false,
+  dotfiles: 'deny',
+  fallthrough: false,
+  setHeaders: (res) => res.setHeader('Cache-Control', 'private, max-age=86400'),
+}));
+
+app.get('/api/photos', requireViewer, (_req, res) => {
   const rows = selectRecentPhotos.all(PHOTOS_QUERY_LIMIT);
   res.json({ photos: rows, count: rows.length });
 });
@@ -331,6 +439,7 @@ app.post('/api/upload', enforceUploadRateLimit, upload.single('photo'), async (r
       recordAttempt(authFailuresByIp, getClientIp(req), Date.now(), AUTH_WINDOW_MS);
       return res.status(401).json({ error: 'Incorrect event password.' });
     }
+    grantViewSession(req, res);  // an uploader can see the wall they just posted to
     if (!req.file) {
       return res.status(400).json({ error: 'No photo provided.' });
     }
@@ -412,6 +521,7 @@ app.post('/api/upload', enforceUploadRateLimit, upload.single('photo'), async (r
 
 app.get('/api/admin/check', (req, res) => {
   if (!verifyAdmin(req, res)) return;
+  grantViewSession(req, res);  // lets the admin grid load photo files
   res.json({ ok: true });
 });
 
@@ -486,13 +596,12 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: 'Server error.' });
 });
 
-// Optional: serve the static site (index.html, tv/, admin.html, img/, uploads/)
+// Optional: serve the static site (index.html, tv/, admin.html, js/, img/)
 // from this process. Handy for local development and demos; in production let
 // Caddy/nginx serve the files instead.
 if (process.env.SERVE_STATIC) {
   const siteDir = path.resolve(process.env.SERVE_STATIC === '1' ? path.join(__dirname, '..') : process.env.SERVE_STATIC);
-  app.use('/uploads', express.static(UPLOAD_DIR));
-  app.use(express.static(siteDir, { index: 'index.html' }));
+  app.use(express.static(siteDir, { index: 'index.html', dotfiles: 'ignore' }));
 }
 
 const server = app.listen(PORT, HOST, () => {
