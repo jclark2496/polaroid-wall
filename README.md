@@ -17,7 +17,7 @@ No cloud dependencies: one small Node process, a SQLite file, and a folder of ph
 ## Features
 
 - **Polaroid photo wall** — responsive grid of tilted Polaroid cards with guest notes in handwritten script
-- **Password-gated uploads** — shared event password keeps strangers out; stored in localStorage so guests only enter it once
+- **Private by default** — the shared event password gates uploads *and* viewing; guests enter it once and get a month-long signed session (set `PRIVATE_WALL=0` for a public wall)
 - **Live updates** — wall polls every 30 seconds; new photos appear without a page refresh
 - **Day/event filter chips** — sticky pill nav lets guests browse photos by event day (Welcome, Rehearsal, Wedding Day, etc.)
 - **"New since your last visit" strip** — returning guests see what they missed at the top
@@ -67,13 +67,13 @@ Want something to look at? Seed it with the bundled demo photos:
 node demo/seed.js http://127.0.0.1:3300 demo-password
 ```
 
-In production, leave `SERVE_STATIC` unset and let Caddy or nginx serve the static files (see Deployment).
+In production, leave `SERVE_STATIC` unset and let Caddy or nginx serve the static files (see Deployment). Photos in `/uploads` are always served by the Node process so the viewing session protects them.
 
 ---
 
 ## Configuration
 
-All event-specific text lives in the `CONFIG` block near the top of `index.html`:
+All event-specific text lives in the `CONFIG` block in `js/config.js`:
 
 ```js
 const CONFIG = {
@@ -108,6 +108,8 @@ For the **TV page**, update the names, domain and password text in `tv/index.htm
 |---|---|---|
 | `UPLOAD_PASSWORD` | `changeme` | Shared password guests use to upload |
 | `ADMIN_PASSWORD` | same as upload | Password for admin endpoints |
+| `SESSION_SECRET` | random per start | Signs viewing sessions. Set it (`openssl rand -hex 32`) so guests stay signed in across restarts |
+| `PRIVATE_WALL` | `1` | `1` requires the event password to see the wall and photos. `0` makes viewing public; uploads still need the password |
 | `PORT` | `3300` | Port the server listens on |
 | `SERVE_STATIC` | unset | Set to `1` (or a directory path) to serve the static site from Node — dev/demo only |
 | `APP_DIR` | `/opt/polaroid-wall` | App directory (SQLite DB lives here) |
@@ -144,8 +146,8 @@ cd /opt/polaroid-wall && npm install --omit=dev
 cp index.html /var/www/polaroid-wall/
 cp -r tv /var/www/polaroid-wall/
 # Static pages and hero image
-cp admin.html /var/www/polaroid-wall/
-cp -r img /var/www/polaroid-wall/
+cp admin.html robots.txt /var/www/polaroid-wall/
+cp -r js img /var/www/polaroid-wall/
 ```
 
 ### 4. Install and start the systemd service
@@ -162,11 +164,25 @@ systemctl enable --now polaroid-wall
 ```
 your-domain.com {
     root * /var/www/polaroid-wall
+
+    # The app checks the viewing session before serving any photo
+    reverse_proxy /api/* 127.0.0.1:3300
+    reverse_proxy /uploads/* 127.0.0.1:3300
     file_server
 
-    reverse_proxy /api/* 127.0.0.1:3300
+    header {
+        Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+        X-Content-Type-Options nosniff
+        Referrer-Policy same-origin
+        Permissions-Policy "geolocation=(), microphone=(), camera=(), payment=()"
+        Strict-Transport-Security "max-age=31536000"
+        X-Robots-Tag "noindex, nofollow"
+        -Server
+    }
 }
 ```
+
+Upgrading from an earlier version? Caddy used to serve `/uploads` straight from disk. Route it to the app as above, or photos stay public.
 
 ```bash
 systemctl reload caddy
@@ -184,12 +200,12 @@ echo "0 * * * * root /opt/polaroid-wall/backup.sh >> /var/log/polaroid-wall-back
 
 ## Admin Panel
 
-Open `/admin.html` and sign in with `ADMIN_PASSWORD` (or the upload password if no admin password is set). The password is kept in `sessionStorage` only. The page lets you browse every photo, edit a guest's name or note, delete a photo, and download everything as a ZIP. `admin.html` is `noindex`, but it is not linked from the guest pages, so bookmark it. It uses the `X-Admin-Password` header against these endpoints:
+Open `/admin.html` and sign in with `ADMIN_PASSWORD` (or the upload password if no admin password is set). The password is kept in `sessionStorage` only. The page lets you browse every photo, edit a guest's name or note, delete a photo, and download everything as a ZIP. It isn't linked from the guest pages, so bookmark it. It uses the `X-Admin-Password` header against these endpoints, and wrong passwords count toward the same lockout as the guest password:
 
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/api/admin/check` | Verify admin password |
-| `GET` | `/api/photos` | List photos (public; used by the wall, TV and admin pages) |
+| `GET` | `/api/photos` | List photos (needs a viewing session or the admin header when the wall is private) |
 | `DELETE` | `/api/photos/:id` | Delete a photo and its files |
 | `PATCH` | `/api/admin/photos/:id` | Edit guest name or note |
 | `GET` | `/api/admin/download-all` | Download all photos as a ZIP |
@@ -206,7 +222,7 @@ Navigate to `/tv/` on your event domain. Designed to run on a TV or monitor at t
 - Uses Wake Lock API to prevent screen sleep
 - Hides cursor after 3 seconds of inactivity
 
-Update the domain and password text in `tv/index.html` before deploying.
+Update the domain and password text in `tv/index.html` before deploying. On a private wall the TV asks for the event password once and keeps a month-long session.
 
 ---
 
@@ -214,10 +230,17 @@ Update the domain and password text in `tv/index.html` before deploying.
 
 ```
 polaroid-wall/
-├── index.html              # Main guest-facing app (single file, no build step)
+├── index.html              # Main guest-facing page (no build step)
 ├── admin.html              # Admin panel (view, edit, delete, download ZIP)
+├── robots.txt              # Keeps the whole site out of search engines
+├── js/
+│   ├── config.js           # Your event: names, dates, days
+│   ├── wall.js             # The wall, uploads, lightbox and sign-in gate
+│   ├── itinerary.js        # Itinerary modal
+│   └── admin.js            # Admin panel
 ├── tv/
-│   └── index.html          # TV/slideshow mode
+│   ├── index.html          # TV/slideshow mode
+│   └── tv.js
 ├── img/
 │   └── hero.jpg            # Hero background (replace with your own)
 ├── server/
@@ -235,13 +258,14 @@ polaroid-wall/
 
 ## Security Notes
 
-- Passwords are compared with `crypto.timingSafeEqual` to prevent timing attacks
-- Upload rate limiting: 200 uploads per IP per 15 minutes
-- Auth failure rate limiting: 8 failures per IP per 15 minutes (blocks brute force)
-- Images are validated by magic bytes before processing, with pixel dimension limits
-- `sharp` processes images with `limitInputPixels` as a decompression bomb guard
-- Uploads are written to `.part` temp files then renamed atomically
-- Server runs as a dedicated low-privilege user via systemd hardening
+- **Private wall:** viewing the wall, the photo list and every photo file needs a session. The session is an HMAC-SHA256-signed expiry in an `HttpOnly`, `SameSite=Lax` cookie (`Secure` behind HTTPS), issued only after the event password.
+- **Passwords** are compared with `crypto.timingSafeEqual`. Eight wrong guesses per IP in 15 minutes, on the guest *or* admin password, return HTTP 429 until the window passes.
+- **Upload rate limiting:** 200 uploads per IP per 15 minutes.
+- **Image validation:** formats are identified by their magic bytes (PNG, GIF, JPEG, WebP, HEIC/AVIF) with dimension limits checked before decoding, and `sharp` runs with `limitInputPixels` as a decompression bomb guard.
+- **Metadata:** every photo is re-encoded, which drops EXIF data including GPS location.
+- **Files:** names are random and generated by the server, written to `.part` files and renamed atomically. Photos are served with `dotfiles: deny` and no directory listing.
+- **Headers:** a Content-Security-Policy with `script-src 'self'` (no inline scripts or handlers anywhere), `frame-ancestors 'none'`, `nosniff`, a same-origin referrer policy, a Permissions-Policy, and `X-Robots-Tag: noindex`. Every page also carries `noindex`, and `robots.txt` disallows everything.
+- **Host:** a dedicated `nologin` user under systemd hardening, write access to two folders only, listening on 127.0.0.1.
 
 ---
 
